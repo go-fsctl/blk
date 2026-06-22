@@ -1,0 +1,6 @@
+# Build artifacts
+/blkinfo
+*.test
+*.out
+# Editor/OS cruft
+.DS_Store
