@@ -2,7 +2,6 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-fsctl/blk.svg)](https://pkg.go.dev/github.com/go-fsctl/blk)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
-[![CI](https://github.com/go-fsctl/blk/actions/workflows/ci.yml/badge.svg)](https://github.com/go-fsctl/blk/actions/workflows/ci.yml)
 
 Pure-Go generic Linux block-device ioctls: query a block device's size and
 geometry, toggle its read-only flag, discard/zero ranges, flush its buffer
