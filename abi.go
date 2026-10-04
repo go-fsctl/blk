@@ -189,7 +189,7 @@ type blkZoneRange struct {
 // recorded so abi_test.go can pin them against the kernel C sizeof() values on
 // a 64-bit kernel.
 var (
-	abiSizeofBlkpgIoctlArg = unsafe.Sizeof(blkpgIoctlArg{})
+	abiSizeofBlkpgIoctlArg  = unsafe.Sizeof(blkpgIoctlArg{})
 	abiSizeofBlkpgPartition = unsafe.Sizeof(blkpgPartition{})
 	abiSizeofBlkZoneRange   = unsafe.Sizeof(blkZoneRange{})
 )
