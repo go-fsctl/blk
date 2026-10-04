@@ -47,7 +47,7 @@ func GetSize64(fd int) (uint64, error) {
 // device larger than 2 TiB the value overflows a 32-bit long, so prefer
 // GetSize64. The result is returned as a uint64 holding the long value.
 func GetSize(fd int) (uint64, error) {
-	var v uint  // matches C unsigned long on LP64/ILP32
+	var v uint // matches C unsigned long on LP64/ILP32
 	if err := ioctlPtr(fd, BLKGETSIZE, unsafe.Pointer(&v)); err != nil {
 		return 0, fmt.Errorf("blk: BLKGETSIZE: %w", err)
 	}
@@ -58,7 +58,7 @@ func GetSize(fd int) (uint64, error) {
 // is the block size used for buffered I/O, not necessarily the hardware sector
 // size; see GetSectorSize and GetPhysBlockSize for those.
 func GetBlockSize(fd int) (int, error) {
-	var v uint  // BLKBSZGET reads a size_t (kernel: int promoted), positive
+	var v uint // BLKBSZGET reads a size_t (kernel: int promoted), positive
 	if err := ioctlPtr(fd, BLKBSZGET, unsafe.Pointer(&v)); err != nil {
 		return 0, fmt.Errorf("blk: BLKBSZGET: %w", err)
 	}

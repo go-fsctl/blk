@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Copyright (c) 2026, go-fsctl
+// # Copyright (c) 2026, go-fsctl
 //
 // blkinfo is a live demonstration of github.com/go-fsctl/blk: given a block
 // device path it opens the device and dumps its size, block/sector/physical
@@ -32,9 +32,9 @@ var (
 	getIOOpt         = blk.GetIOOpt
 	getReadOnly      = blk.GetReadOnly
 
-	osExit            = os.Exit
-	stdout io.Writer  = os.Stdout
-	stderr io.Writer  = os.Stderr
+	osExit           = os.Exit
+	stdout io.Writer = os.Stdout
+	stderr io.Writer = os.Stderr
 )
 
 // devFD is the slice of *os.File blkinfo needs: a file descriptor and Close.
