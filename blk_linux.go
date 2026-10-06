@@ -28,6 +28,8 @@ package blk
 import (
 	"fmt"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // --- Size and geometry queries -------------------------------------------
@@ -58,7 +60,10 @@ func GetSize(fd int) (uint64, error) {
 // is the block size used for buffered I/O, not necessarily the hardware sector
 // size; see GetSectorSize and GetPhysBlockSize for those.
 func GetBlockSize(fd int) (int, error) {
-	var v uint // BLKBSZGET reads a size_t (kernel: int promoted), positive
+	// The request number is _IOR(0x12, 112, size_t), but the kernel answers
+	// with put_int(argp, block_size(bdev)) (block/ioctl.c): 4 bytes, a C int.
+	// An 8-byte Go uint only worked on little-endian 64-bit by accident.
+	var v int32
 	if err := ioctlPtr(fd, BLKBSZGET, unsafe.Pointer(&v)); err != nil {
 		return 0, fmt.Errorf("blk: BLKBSZGET: %w", err)
 	}
@@ -69,7 +74,12 @@ func GetBlockSize(fd int) (int, error) {
 // must be a power of two between 512 and the page size; the kernel rejects
 // other values with EINVAL. Requires CAP_SYS_ADMIN.
 func SetBlockSize(fd int, size int) error {
-	v := uint(size)
+	// The request number is _IOW(0x12, 113, size_t), but blkdev_bszset reads
+	// the argument through an int __user * (block/ioctl.c): 4 bytes, a C int.
+	v := int32(size)
+	if int(v) != size {
+		return fmt.Errorf("blk: BLKBSZSET(%d): %w", size, unix.EINVAL)
+	}
 	if err := ioctlPtr(fd, BLKBSZSET, unsafe.Pointer(&v)); err != nil {
 		return fmt.Errorf("blk: BLKBSZSET(%d): %w", size, err)
 	}

@@ -29,6 +29,12 @@ import "unsafe"
 //
 // where size_t is 8 bytes on a 64-bit (LP64) kernel and __u32 is 4 bytes.
 //
+// The size encoded in the NUMBER is not always the size of the DATA: for
+// BLKBSZGET/BLKBSZSET the header says size_t, but block/ioctl.c moves a C int
+// (put_int for BLKBSZGET, blkdev_bszset(..., int __user *argp) for BLKBSZSET).
+// The number must keep size_t -- that is what the kernel's switch matches --
+// while the argument must be 4 bytes, or big-endian 64-bit reads the wrong half.
+//
 // We recompute every number in Go from the _IOC bit layout rather than
 // hard-coding the hex, so the derivation is self-documenting and unit-testable;
 // the expected hex values above and below (verified against a C program
@@ -105,8 +111,8 @@ var (
 	// Sizes and geometry.
 	BLKGETSIZE       = io(blkMagic, 96)                // 0x1260  (long*, 512-byte sectors)
 	BLKSSZGET        = io(blkMagic, 104)               // 0x1268  (int*, logical sector size)
-	BLKBSZGET        = ior(blkMagic, 112, sizeofSizeT) // 0x80081270 (size_t*)
-	BLKBSZSET        = iow(blkMagic, 113, sizeofSizeT) // 0x40081271 (size_t*)
+	BLKBSZGET        = ior(blkMagic, 112, sizeofSizeT) // 0x80081270 (number says size_t; data is an int*)
+	BLKBSZSET        = iow(blkMagic, 113, sizeofSizeT) // 0x40081271 (number says size_t; data is an int*)
 	BLKGETSIZE64     = ior(blkMagic, 114, sizeofSizeT) // 0x80081272 (u64*, bytes)
 	BLKIOMIN         = io(blkMagic, 120)               // 0x1278  (uint*)
 	BLKIOOPT         = io(blkMagic, 121)               // 0x1279  (uint*)
@@ -149,18 +155,28 @@ const (
 //		char      devname[BLKPG_DEVNAMELTH];
 //		char      volname[BLKPG_VOLNAMELTH];
 //	};
+//
+// C pads the struct to the alignment of long long: 152 bytes on every 64-bit
+// ABI and on 32-bit arm and mips, 148 on i386 (long long 4-aligned). Go aligns
+// int64 to 4 on every 32-bit port, so without the explicit tail pad the struct
+// would be 148 bytes on arm and mips and the kernel would copy 4 bytes past it.
+// The pad also covers i386: a 32-bit process on a 64-bit kernel goes through
+// compat_blkpg_ioctl, which copies the kernel's own 152-byte struct.
 type blkpgPartition struct {
 	Start   int64
 	Length  int64
 	Pno     int32
 	DevName [blkpgDevNameLen]byte
 	VolName [blkpgVolNameLen]byte
+	_       [4]byte // tail pad to 152 bytes on every architecture (see above)
 }
 
 // blkpgIoctlArg mirrors the kernel's struct blkpg_ioctl_arg (linux/blkpg.h),
-// the argument to the BLKPG ioctl. Data points at a blkpgPartition. On a 64-bit
-// kernel the pointer is 8-byte aligned, so the struct is 24 bytes with 4 bytes
-// of padding after datalen.
+// the argument to the BLKPG ioctl. Data points at a blkpgPartition. Go aligns
+// the pointer exactly as C does: on a 64-bit kernel it is 8-byte aligned, so
+// the struct is 24 bytes with 4 bytes of implicit padding after datalen; on a
+// 32-bit one it follows datalen directly and the struct is 16 bytes. (An
+// explicit pad field here made it 20 bytes on 32-bit.)
 //
 //	struct blkpg_ioctl_arg {
 //		int   op;
@@ -172,7 +188,6 @@ type blkpgIoctlArg struct {
 	Op      int32
 	Flags   int32
 	DataLen int32
-	_       int32 // explicit padding to 8-byte-align Data on LP64
 	Data    unsafe.Pointer
 }
 
@@ -190,8 +205,8 @@ type blkZoneRange struct {
 }
 
 // abiSizeofBlkpgIoctlArg / abiSizeofBlkpgPartition / abiSizeofBlkZoneRange are
-// recorded so abi_test.go can pin them against the kernel C sizeof() values on
-// a 64-bit kernel.
+// recorded so abi_test.go can pin them against the kernel C sizeof() values of
+// the architecture under test.
 var (
 	abiSizeofBlkpgIoctlArg  = unsafe.Sizeof(blkpgIoctlArg{})
 	abiSizeofBlkpgPartition = unsafe.Sizeof(blkpgPartition{})
