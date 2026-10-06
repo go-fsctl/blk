@@ -92,7 +92,10 @@ jobs:
   # package encoded the asm-generic one everywhere without any lane noticing.
   # These lanes run the test binaries on one architecture of each of those two
   # families, so TestIoctlAgainstXSys judges the numbers where they differ.
-  # mips64le runs on bookworm because trixie dropped mips64el.
+  # The binaries are static (CGO_ENABLED=0), so they run straight on the
+  # runner through the binfmt_misc handlers that tonistiigi/binfmt registers:
+  # no Docker Hub image is published for mips64le any more, and a container
+  # would add nothing a static binary uses.
   emulated:
     name: emulated (${{ matrix.arch }})
     runs-on: ubuntu-latest
@@ -101,10 +104,8 @@ jobs:
       matrix:
         include:
           - arch: ppc64le
-            image: debian:trixie
             qemu_cpu: "power9"
           - arch: mips64le
-            image: debian:bookworm
             qemu_cpu: ""
     steps:
       - uses: actions/checkout@v7
@@ -136,16 +137,14 @@ jobs:
         env:
           QEMU_CPU: ${{ matrix.qemu_cpu }}
         run: |
+          [ -n "$QEMU_CPU" ] || unset QEMU_CPU
           set -euo pipefail
           shopt -s nullglob
           bins=(testbins/*.test)
           test ${#bins[@]} -gt 0 || { echo "::error::no test binary was built"; exit 1; }
           for bin in "${bins[@]}"; do
             echo "::group::Running $bin on linux/${{ matrix.arch }}"
-            docker run --rm --platform linux/${{ matrix.arch }} \
-              ${QEMU_CPU:+-e QEMU_CPU="$QEMU_CPU"} \
-              -v "$PWD":/work -w /work \
-              ${{ matrix.image }} \
-              "/work/$bin" -test.v -test.short
+            file "$bin"
+            "$bin" -test.v -test.short
             echo "::endgroup::"
           done
