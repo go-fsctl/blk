@@ -94,9 +94,11 @@ jobs:
   # families, so TestIoctlAgainstXSys judges the numbers where they differ.
   # s390x is the big-endian 64-bit lane: an argument passed with the wrong
   # width (an 8-byte Go uint where the kernel moves a 4-byte int) still lines up
-  # on little-endian and is off by 32 bits there. arm, mips and 386 are the
-  # 32-bit lanes, where struct layout differs from LP64 (pointer size, and the
-  # alignment of long long: 8 on arm and mips, 4 on i386). 386 runs natively.
+  # on little-endian and is off by 32 bits there. arm and 386 are the 32-bit
+  # lanes, where struct layout differs from LP64 (pointer size, and the
+  # alignment of long long: 8 on arm, 4 on i386). 386 runs natively. There is
+  # no 32-bit mips lane: tonistiigi/binfmt registers no qemu-mips(el), and the
+  # binary fails with "Exec format error".
   # The binaries are static (CGO_ENABLED=0), so they run straight on the
   # runner through the binfmt_misc handlers that tonistiigi/binfmt registers:
   # no Docker Hub image is published for mips64le any more, and a container
@@ -113,8 +115,6 @@ jobs:
           - arch: mips64le
             qemu_cpu: ""
           - arch: s390x
-            qemu_cpu: ""
-          - arch: mips
             qemu_cpu: ""
           - arch: arm
             qemu_cpu: ""
