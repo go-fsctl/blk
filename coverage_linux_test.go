@@ -7,6 +7,7 @@
 package blk
 
 import (
+	"encoding/binary"
 	"errors"
 	"testing"
 	"unsafe"
@@ -71,8 +72,6 @@ func TestScalarGetters(t *testing.T) {
 	getters := []getter{
 		{"GetSize", func(fd int) (int64, error) { v, e := GetSize(fd); return int64(v), e },
 			func(p unsafe.Pointer) { *(*uint)(p) = 2097152 }, 2097152},
-		{"GetBlockSize", func(fd int) (int64, error) { v, e := GetBlockSize(fd); return int64(v), e },
-			func(p unsafe.Pointer) { *(*uint)(p) = 4096 }, 4096},
 		{"GetSectorSize", func(fd int) (int64, error) { v, e := GetSectorSize(fd); return int64(v), e },
 			func(p unsafe.Pointer) { *(*int32)(p) = 512 }, 512},
 		{"GetPhysBlockSize", func(fd int) (int64, error) { v, e := GetPhysBlockSize(fd); return int64(v), e },
@@ -125,12 +124,69 @@ func TestBoolGetters(t *testing.T) {
 	}
 }
 
-// TestSetters covers the mutating scalar ioctls: SetBlockSize, SetReadOnly.
+// TestBlockSizeIsACInt checks GetBlockSize and SetBlockSize against what the
+// kernel does with the argument, not against the Go type the package picked.
+// block/ioctl.c answers BLKBSZGET with put_int(argp, block_size(bdev)) and
+// passes BLKBSZSET to blkdev_bszset(file, mode, int __user *argp), which reads
+// it with get_user(n, argp): both move exactly one C int, 4 bytes in native
+// byte order. Only the request NUMBER uses size_t (_IOR(0x12,112,size_t) in
+// include/uapi/linux/fs.h).
+//
+// The fake here plays the kernel byte for byte. A Go uint (8 bytes) passed in
+// its place still agrees on little-endian 64-bit, because the int lands in the
+// low half; on big-endian 64-bit (s390x, ppc64, mips64) Get reads the value
+// shifted left by 32 and Set hands the kernel the zero high half. The s390x
+// lane is where this test bites.
+func TestBlockSizeIsACInt(t *testing.T) {
+	putInt := func(want int32) func(int, uintptr, unsafe.Pointer) error {
+		return func(_ int, req uintptr, arg unsafe.Pointer) error {
+			if req != BLKBSZGET {
+				t.Errorf("request = %#x, want BLKBSZGET %#x", req, BLKBSZGET)
+			}
+			binary.NativeEndian.PutUint32(unsafe.Slice((*byte)(arg), 4), uint32(want))
+			return nil
+		}
+	}
+	for _, want := range []int32{512, 4096, 65536} {
+		withIoctl(putInt(want), func() {
+			got, err := GetBlockSize(3)
+			if err != nil || got != int(want) {
+				t.Errorf("GetBlockSize = %d, %v; the kernel put_int %d", got, err, want)
+			}
+		})
+	}
+
+	for _, size := range []int{512, 4096, 65536} {
+		var seen int32
+		withIoctl(func(_ int, req uintptr, arg unsafe.Pointer) error {
+			if req != BLKBSZSET {
+				t.Errorf("request = %#x, want BLKBSZSET %#x", req, BLKBSZSET)
+			}
+			seen = int32(binary.NativeEndian.Uint32(unsafe.Slice((*byte)(arg), 4)))
+			return nil
+		}, func() {
+			if err := SetBlockSize(3, size); err != nil {
+				t.Errorf("SetBlockSize(%d): %v", size, err)
+			}
+		})
+		if seen != int32(size) {
+			t.Errorf("SetBlockSize(%d): the kernel's get_user(int) reads %d", size, seen)
+		}
+	}
+
+	withIoctl(failSeam, func() {
+		if _, err := GetBlockSize(3); !errors.Is(err, errInjected) {
+			t.Errorf("GetBlockSize err = %v, want EIO", err)
+		}
+		if err := SetBlockSize(3, 4096); !errors.Is(err, errInjected) {
+			t.Errorf("SetBlockSize err = %v, want EIO", err)
+		}
+	})
+}
+
+// TestSetters covers the remaining mutating scalar ioctl, SetReadOnly.
 func TestSetters(t *testing.T) {
 	withIoctl(okWriting(nil), func() {
-		if err := SetBlockSize(3, 4096); err != nil {
-			t.Errorf("SetBlockSize: %v", err)
-		}
 		if err := SetReadOnly(3, true); err != nil {
 			t.Errorf("SetReadOnly(true): %v", err)
 		}
@@ -139,9 +195,6 @@ func TestSetters(t *testing.T) {
 		}
 	})
 	withIoctl(failSeam, func() {
-		if err := SetBlockSize(3, 4096); !errors.Is(err, errInjected) {
-			t.Errorf("SetBlockSize err = %v, want EIO", err)
-		}
 		if err := SetReadOnly(3, true); !errors.Is(err, errInjected) {
 			t.Errorf("SetReadOnly err = %v, want EIO", err)
 		}
