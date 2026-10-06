@@ -29,30 +29,31 @@ import "unsafe"
 //
 // where size_t is 8 bytes on a 64-bit (LP64) kernel and __u32 is 4 bytes.
 //
-// We recompute every number in Go from the _IOC bit layout (the same one the
-// kernel uses in asm-generic/ioctl.h) rather than hard-coding the hex, so the
-// derivation is self-documenting and unit-testable; the expected hex values
-// (verified against a C program compiled from the kernel headers) are pinned in
-// abi_test.go.
+// We recompute every number in Go from the _IOC bit layout rather than
+// hard-coding the hex, so the derivation is self-documenting and unit-testable;
+// the expected hex values above and below (verified against a C program
+// compiled from the kernel headers on x86-64) are pinned in abi_test.go.
+//
+// The hex quoted in this file is the asm-generic encoding. The layout is not
+// the same on every architecture: powerpc and mips override it in
+// arch/{powerpc,mips}/include/uapi/asm/ioctl.h with 13 size bits, 3 dir bits
+// and _IOC_NONE=1, _IOC_READ=2, _IOC_WRITE=4. There even a plain _IO request
+// differs -- BLKFLSBUF is 0x20001261 on ppc64le, not 0x1261 -- and the kernel
+// answers ENOTTY to the asm-generic number. (sparc and alpha share that layout
+// and parisc has its own; Go has no Linux port for any of the three.)
 
-// _IOC bit layout from asm-generic/ioctl.h. These are the values used by every
-// mainstream architecture (the few exceptions — alpha, mips, powerpc, sparc —
-// override the size/dir bit widths; this package targets the generic layout,
-// which covers x86, arm, arm64, riscv64, loong64, s390x).
+// _IOC bit layout. The nr and type fields are the same everywhere; the size
+// and dir widths and the direction values come from ioclayout_generic.go
+// (asm-generic: x86, arm, arm64, riscv64, loong64, s390x) or
+// ioclayout_ppcmips.go (powerpc and mips), selected by build tag.
 const (
 	_IOC_NRBITS   = 8
 	_IOC_TYPEBITS = 8
-	_IOC_SIZEBITS = 14
-	_IOC_DIRBITS  = 2
 
 	_IOC_NRSHIFT   = 0
 	_IOC_TYPESHIFT = _IOC_NRSHIFT + _IOC_NRBITS
 	_IOC_SIZESHIFT = _IOC_TYPESHIFT + _IOC_TYPEBITS
 	_IOC_DIRSHIFT  = _IOC_SIZESHIFT + _IOC_SIZEBITS
-
-	_IOC_NONE  = 0
-	_IOC_WRITE = 1
-	_IOC_READ  = 2
 )
 
 // ioc assembles a request number exactly as the kernel's _IOC(dir,type,nr,size)
@@ -79,15 +80,18 @@ func iow(typ, nr, size uintptr) uintptr { return ioc(_IOC_WRITE, typ, nr, size) 
 const blkMagic = 0x12
 
 // sizeofSizeT is the size the kernel headers encode for size_t in
-// BLKBSZGET/BLKBSZSET/BLKGETSIZE64. On every 64-bit platform this package
-// targets, size_t is 8 bytes; the numbers are pinned for LP64 in abi_test.go.
-const sizeofSizeT = 8
+// BLKBSZGET/BLKBSZSET/BLKGETSIZE64: pointer-sized, so 8 bytes on a 64-bit
+// kernel and 4 on a 32-bit one (x/sys/unix has BLKGETSIZE64 = 0x80041272 on
+// linux/386 and arm). It was a constant 8, which gave the 64-bit number on
+// 32-bit platforms too. The numbers are pinned for LP64 in abi_test.go.
+const sizeofSizeT = unsafe.Sizeof(uintptr(0))
 
 // sizeofU32 is the size encoded for __u32 in BLKGETZONESZ / BLKGETNRZONES.
 const sizeofU32 = 4
 
 // Block ioctl request numbers, derived from linux/fs.h, linux/blkpg.h, and
-// linux/blkzoned.h. The trailing hex comment is the value on a 64-bit kernel.
+// linux/blkzoned.h. The trailing hex comment is the value on a 64-bit kernel
+// with the asm-generic _IOC layout.
 var (
 	// Read-only flag (BLKROGET/BLKROSET take an int*).
 	BLKROSET = io(blkMagic, 93) // 0x125d

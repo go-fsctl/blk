@@ -85,3 +85,66 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
         run: go build ./...
+
+  # The jobs above run the tests on linux/amd64 only. The ioctl request
+  # numbers are not the same on every architecture: powerpc and mips use their
+  # own _IOC layout (13 size bits, 3 dir bits, NONE=1 READ=2 WRITE=4), and this
+  # package encoded the asm-generic one everywhere without any lane noticing.
+  # These lanes run the test binaries on one architecture of each of those two
+  # families, so TestIoctlAgainstXSys judges the numbers where they differ.
+  # The binaries are static (CGO_ENABLED=0), so they run straight on the
+  # runner through the binfmt_misc handlers that tonistiigi/binfmt registers:
+  # no Docker Hub image is published for mips64le any more, and a container
+  # would add nothing a static binary uses.
+  emulated:
+    name: emulated (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: ppc64le
+            qemu_cpu: "power9"
+          - arch: mips64le
+            qemu_cpu: ""
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up binfmt (QEMU)
+        run: docker run --rm --privileged tonistiigi/binfmt --install all
+      - name: Cross-compile per-package test binaries
+        run: |
+          set -euo pipefail
+          mkdir -p testbins
+          for pkg in $(go list ./...); do
+            name=$(echo "$pkg" | tr '/' '_')
+            # Skip packages that genuinely have no test files; everything else
+            # MUST compile, or the lane would pass having tested nothing.
+            hastests=$(go list -f '{{if or .TestGoFiles .XTestGoFiles}}yes{{end}}' "$pkg")
+            if [ -z "$hastests" ]; then
+              echo "no test files for $pkg, skipping"
+              continue
+            fi
+            echo "Compiling test binary for $pkg"
+            CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
+              go test -c -o "testbins/${name}.test" "$pkg"
+          done
+          ls -l testbins
+      - name: Run test binaries under QEMU (${{ matrix.arch }})
+        env:
+          QEMU_CPU: ${{ matrix.qemu_cpu }}
+        run: |
+          [ -n "$QEMU_CPU" ] || unset QEMU_CPU
+          set -euo pipefail
+          shopt -s nullglob
+          bins=(testbins/*.test)
+          test ${#bins[@]} -gt 0 || { echo "::error::no test binary was built"; exit 1; }
+          for bin in "${bins[@]}"; do
+            echo "::group::Running $bin on linux/${{ matrix.arch }}"
+            file "$bin"
+            "$bin" -test.v -test.short
+            echo "::endgroup::"
+          done

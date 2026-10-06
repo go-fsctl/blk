@@ -13,7 +13,10 @@ import (
 // abi.go to the values published by the kernel uapi headers on a 64-bit (LP64)
 // kernel, where size_t is 8 bytes. These were verified by compiling a C program
 // against linux/fs.h, linux/blkpg.h, and linux/blkzoned.h and printing each
-// macro (see the package README / commit message).
+// macro (see the package README / commit message). They are written in the
+// asm-generic _IOC layout; kernelIOC re-encodes them for powerpc and mips, and
+// TestIoctlAgainstXSys checks them against an independent per-architecture
+// source.
 func TestBlkIoctlNumbers(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -46,30 +49,30 @@ func TestBlkIoctlNumbers(t *testing.T) {
 		{"BLKGETZONESZ", BLKGETZONESZ, 0x80041284},
 		{"BLKGETNRZONES", BLKGETNRZONES, 0x80041285},
 	} {
-		if c.got != c.want {
-			t.Errorf("%s = %#x, want %#x", c.name, c.got, c.want)
+		if want := kernelIOC(c.want); c.got != want {
+			t.Errorf("%s = %#x, want %#x", c.name, c.got, want)
 		}
 	}
 }
 
 // TestIOCHelpers checks the _IOC derivation helpers independently of the
-// concrete request numbers.
+// concrete request numbers. The expected values are written in the asm-generic
+// layout and re-encoded by kernelIOC for powerpc and mips.
 func TestIOCHelpers(t *testing.T) {
-	if got := io(blkMagic, 119); got != 0x1277 {
-		t.Errorf("io(0x12, 119) = %#x, want 0x1277", got)
-	}
-	if got := ior(blkMagic, 114, sizeofSizeT); got != 0x80081272 {
-		t.Errorf("ior(0x12, 114, 8) = %#x, want 0x80081272", got)
-	}
-	if got := iow(blkMagic, 113, sizeofSizeT); got != 0x40081271 {
-		t.Errorf("iow(0x12, 113, 8) = %#x, want 0x40081271", got)
-	}
-	if got := ior(blkMagic, 132, sizeofU32); got != 0x80041284 {
-		t.Errorf("ior(0x12, 132, 4) = %#x, want 0x80041284", got)
-	}
-	// The direction and size bits must land where the kernel expects.
-	if got := ioc(_IOC_READ, blkMagic, 114, sizeofSizeT); got != 0x80081272 {
-		t.Errorf("ioc(READ, 0x12, 114, 8) = %#x, want 0x80081272", got)
+	for _, c := range []struct {
+		name      string
+		got, want uintptr
+	}{
+		{"io(0x12, 119)", io(blkMagic, 119), 0x1277},
+		{"ior(0x12, 114, 8)", ior(blkMagic, 114, 8), 0x80081272},
+		{"iow(0x12, 113, 8)", iow(blkMagic, 113, 8), 0x40081271},
+		{"ior(0x12, 132, 4)", ior(blkMagic, 132, sizeofU32), 0x80041284},
+		// The direction and size bits must land where the kernel expects.
+		{"ioc(READ, 0x12, 114, 8)", ioc(_IOC_READ, blkMagic, 114, 8), 0x80081272},
+	} {
+		if want := kernelIOC(c.want); c.got != want {
+			t.Errorf("%s = %#x, want %#x", c.name, c.got, want)
+		}
 	}
 }
 
