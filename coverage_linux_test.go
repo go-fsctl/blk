@@ -174,6 +174,19 @@ func TestBlockSizeIsACInt(t *testing.T) {
 		}
 	}
 
+	// A size that does not fit the kernel's int must not be truncated into a
+	// different, valid one (1<<32 + 4096 would become 4096).
+	if big := uint64(1)<<32 + 4096; int(big) > 0 && uint64(int(big)) == big {
+		withIoctl(func(int, uintptr, unsafe.Pointer) error {
+			t.Errorf("SetBlockSize(%d) reached the kernel", big)
+			return nil
+		}, func() {
+			if err := SetBlockSize(3, int(big)); !errors.Is(err, unix.EINVAL) {
+				t.Errorf("SetBlockSize(%d) err = %v, want EINVAL", big, err)
+			}
+		})
+	}
+
 	withIoctl(failSeam, func() {
 		if _, err := GetBlockSize(3); !errors.Is(err, errInjected) {
 			t.Errorf("GetBlockSize err = %v, want EIO", err)
